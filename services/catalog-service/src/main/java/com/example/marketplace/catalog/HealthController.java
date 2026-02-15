@@ -1,4 +1,4 @@
-package main.java.com.example.marketplace.catalog;
+package com.example.marketplace.catalog;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
