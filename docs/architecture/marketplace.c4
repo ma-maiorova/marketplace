@@ -1,0 +1,162 @@
+specification {
+
+  element actor {
+    style { shape person; color secondary }
+  }
+
+  element system
+  element application { style { shape browser; color secondary } }
+  element service { style { shape component; color primary } }
+  element component { style { shape component; color muted } }
+
+  element database { style { shape cylinder; color gray } }
+  element cache { style { shape storage; color gray } }
+  element queue { style { shape queue; color amber } }
+  element search { style { shape storage; color gray } }
+  element externalSystem { style { shape rectangle; color muted } }
+
+  relationship sync { color gray; line solid }
+  relationship async { color amber; line dotted }
+}
+
+model {
+
+  buyer  = actor "Покупатель"
+  seller = actor "Продавец"
+
+  payment_provider = externalSystem "Платёжный провайдер" {
+    technology "External API"
+  }
+
+  notify_provider = externalSystem "Email/SMS/Push провайдер" {
+    technology "External API"
+  }
+
+  marketplace = system "Marketplace" "Платформа продавцов и покупателей" {
+
+    ui  = application "Web/Mobile UI" { technology "SPA / Mobile" }
+    bff = service "API Gateway / BFF" { technology "Java, Spring Boot" }
+
+    user = service "user-service" "Пользователи и роли" { technology "Java, Spring Boot" }
+    catalog = service "catalog-service" "Каталог, категории, товар→sellerId, похожие товары" { technology "Java, Spring Boot" }
+    feed = service "feed-service" "Лента: популярное в категории + недавно просмотренные" { technology "Java, Spring Boot" }
+    orders = service "order-service" "Корзина + заказы + статусы" {
+      technology "Java, Spring Boot"
+      cart = component "cart module"
+    }
+    payments = service "payment-service" "Платежи/учёт/статусы" { technology "Java, Spring Boot" }
+    notifications = service "notification-service" "Уведомления о статусах заказов/платежей" { technology "Java, Spring Boot" }
+
+    // infra / storages (на одном уровне с сервисами)
+    user_db = database "user-db" { technology "PostgreSQL" }
+    catalog_db = database "catalog-db" { technology "PostgreSQL" }
+    feed_db = database "feed-db" { technology "PostgreSQL" }
+    order_db = database "order-db" { technology "PostgreSQL" }
+    payment_db = database "payment-db" { technology "PostgreSQL" }
+    notif_db = database "notification-db" { technology "PostgreSQL" }
+
+    broker = queue "event-bus" { technology "Kafka" }
+    redis = cache "redis-cache" { technology "Redis" }
+    search_index = search "search-index" { technology "OpenSearch" }
+
+    // ownership / persistence
+    user -[sync]-> user_db "JDBC"
+    catalog -[sync]-> catalog_db "JDBC"
+    feed -[sync]-> feed_db "JDBC"
+    orders -[sync]-> order_db "JDBC"
+    payments -[sync]-> payment_db "JDBC"
+    notifications -[sync]-> notif_db "JDBC"
+
+    // --- Sync calls (REST) ---
+    ui -[sync]-> bff "HTTPS"
+
+    bff -[sync]-> user "REST"
+    bff -[sync]-> catalog "REST"
+    bff -[sync]-> feed "REST"
+    bff -[sync]-> orders "REST"
+
+    orders -[sync]-> payments "init payment"
+    payments -[sync]-> payment_provider "payment API"
+
+    // поиск: запросы синхронно в индекс
+    catalog -[sync]-> search_index "search queries"
+    feed   -[sync]-> redis "cache feed"
+
+    notifications -[sync]-> notify_provider "send notifications"
+
+    // --- Async events (broker) ---
+    bff     -[async]-> broker "ProductViewed"
+    catalog -[async]-> broker "ProductUpdated"
+    orders  -[async]-> broker "OrderStatusChanged"
+    payments -[async]-> broker "PaymentStatusChanged"
+
+    broker -[async]-> notifications "consume status events"
+    broker -[async]-> feed "consume ProductViewed"
+  }
+
+  buyer  -> marketplace.ui "browse/search/buy"
+  seller -> marketplace.ui "manage catalog"
+}
+
+views {
+
+  view containers of marketplace {
+    title "Marketplace — Container view"
+    include *
+    include buyer, seller, payment_provider, notify_provider
+
+    group "Клиенты" {
+      include buyer, seller, marketplace.ui
+    }
+
+    group "Backend" {
+      include
+        marketplace.bff,
+        marketplace.user,
+        marketplace.catalog,
+        marketplace.feed,
+        marketplace.orders,
+        marketplace.payments,
+        marketplace.notifications
+    }
+
+    group "Data & Infra" {
+      include
+        marketplace.user_db,
+        marketplace.catalog_db,
+        marketplace.feed_db,
+        marketplace.order_db,
+        marketplace.payment_db,
+        marketplace.notif_db,
+        marketplace.redis,
+        marketplace.search_index,
+        marketplace.broker
+    }
+
+    group "External integrations" {
+      include payment_provider, notify_provider
+    }
+  }
+
+  dynamic view checkout_flow {
+    title "Сценарий: оформление заказа → платёж → уведомление"
+
+    buyer
+      -> marketplace.ui
+      -> marketplace.bff
+      -> marketplace.orders
+      -> marketplace.payments
+      -> payment_provider
+
+    marketplace.payments -> marketplace.broker "PaymentStatusChanged"
+    marketplace.orders   -> marketplace.broker "OrderStatusChanged"
+    marketplace.broker   -> marketplace.notifications "consume events"
+    marketplace.notifications -> notify_provider "send message"
+
+    include marketplace.user, marketplace.catalog, marketplace.feed
+    style marketplace.user, marketplace.catalog, marketplace.feed {
+      color muted
+      opacity 0%
+    }
+  }
+}

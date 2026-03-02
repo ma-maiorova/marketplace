@@ -1,0 +1,28 @@
+{
+  "name": "marketplace",
+  "version": "1.0.0",
+  "description": "Бизнес-логика отсутствует.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ma-maiorova/marketplace.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ma-maiorova/marketplace/issues"
+  },
+  "homepage": "https://github.com/ma-maiorova/marketplace#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "likec4": "^1.49.0"
+  }
+}
