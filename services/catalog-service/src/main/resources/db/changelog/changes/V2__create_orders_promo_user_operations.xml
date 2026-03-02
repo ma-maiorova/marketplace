@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- seller_id для ролевой модели (п.10): SELLER управляет только своими товарами -->
+    <changeSet id="v2-1" author="ma-maiorova">
+        <comment>Поле seller_id в products (владелец-продавец)</comment>
+        <addColumn tableName="products">
+            <column name="seller_id" type="uuid"/>
+        </addColumn>
+    </changeSet>
+
+    <!-- Промокоды: скидки по коду, лимиты использований, срок действия -->
+    <changeSet id="v2-2" author="ma-maiorova">
+        <comment>Таблица промокодов (promo_codes)</comment>
+        <createTable tableName="promo_codes">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="code" type="VARCHAR(20)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="discount_type" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="discount_value" type="DECIMAL(12, 2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="min_order_amount" type="DECIMAL(12, 2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="max_uses" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="current_uses" type="INTEGER" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="valid_from" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="valid_until" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>ALTER TABLE promo_codes ADD CONSTRAINT chk_promo_codes_discount_type CHECK (discount_type IN ('PERCENTAGE', 'FIXED_AMOUNT'))</sql>
+        <sql>COMMENT ON TABLE promo_codes IS 'Промоакции: PERCENTAGE или FIXED_AMOUNT, лимит использований, срок действия'</sql>
+    </changeSet>
+
+    <changeSet id="v2-3" author="ma-maiorova">
+        <comment>Индекс по коду промокода для поиска при применении</comment>
+        <createIndex indexName="idx_promo_codes_code" tableName="promo_codes">
+            <column name="code"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Заказы: владелец, статус, промокод, суммы, даты -->
+    <changeSet id="v2-4" author="ma-maiorova">
+        <comment>Таблица заказов (orders). Статусы: CREATED, PAYMENT_PENDING, PAID, SHIPPED, COMPLETED, CANCELED</comment>
+        <createTable tableName="orders">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="promo_code_id" type="uuid"/>
+            <column name="total_amount" type="DECIMAL(12, 2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="discount_amount" type="DECIMAL(12, 2)" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="orders" baseColumnNames="promo_code_id"
+            constraintName="fk_orders_promo_code" referencedTableName="promo_codes" referencedColumnNames="id"/>
+        <sql>ALTER TABLE orders ADD CONSTRAINT chk_orders_status CHECK (status IN ('CREATED', 'PAYMENT_PENDING', 'PAID', 'SHIPPED', 'COMPLETED', 'CANCELED'))</sql>
+    </changeSet>
+
+    <changeSet id="v2-5" author="ma-maiorova">
+        <comment>Индексы для заказов: по пользователю и статусу (проверка активного заказа, список заказов)</comment>
+        <createIndex indexName="idx_orders_user_id" tableName="orders">
+            <column name="user_id"/>
+        </createIndex>
+        <createIndex indexName="idx_orders_user_status" tableName="orders">
+            <column name="user_id"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="v2-6" author="ma-maiorova">
+        <comment>Триггер updated_at для orders</comment>
+        <sql>
+            CREATE TRIGGER orders_updated_at
+                BEFORE UPDATE ON orders
+                FOR EACH ROW
+                EXECUTE PROCEDURE update_updated_at_column();
+        </sql>
+    </changeSet>
+
+    <!-- Позиции заказа: товар, количество, цена на момент заказа (snapshot) -->
+    <changeSet id="v2-7" author="ma-maiorova">
+        <comment>Таблица позиций заказа (order_items). price_at_order — снапшот цены товара</comment>
+        <createTable tableName="order_items">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="order_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="product_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="quantity" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="price_at_order" type="DECIMAL(12, 2)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="order_items" baseColumnNames="order_id"
+            constraintName="fk_order_items_order" referencedTableName="orders" referencedColumnNames="id" onDelete="CASCADE"/>
+        <addForeignKeyConstraint baseTableName="order_items" baseColumnNames="product_id"
+            constraintName="fk_order_items_product" referencedTableName="products" referencedColumnNames="id"/>
+        <sql>ALTER TABLE order_items ADD CONSTRAINT chk_order_items_quantity CHECK (quantity >= 1 AND quantity &lt;= 999)</sql>
+        <sql>ALTER TABLE order_items ADD CONSTRAINT chk_order_items_price CHECK (price_at_order > 0)</sql>
+    </changeSet>
+
+    <changeSet id="v2-8" author="ma-maiorova">
+        <comment>Индекс по order_id для выборки позиций заказа</comment>
+        <createIndex indexName="idx_order_items_order_id" tableName="order_items">
+            <column name="order_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Операции пользователя: ограничение частоты CREATE_ORDER / UPDATE_ORDER -->
+    <changeSet id="v2-9" author="ma-maiorova">
+        <comment>Таблица операций пользователя (user_operations). Типы: CREATE_ORDER, UPDATE_ORDER</comment>
+        <createTable tableName="user_operations">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="operation_type" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>ALTER TABLE user_operations ADD CONSTRAINT chk_user_operations_type CHECK (operation_type IN ('CREATE_ORDER', 'UPDATE_ORDER'))</sql>
+    </changeSet>
+
+    <changeSet id="v2-10" author="ma-maiorova">
+        <comment>Индекс для выборки последней операции пользователя по типу (ORDER_LIMIT_EXCEEDED)</comment>
+        <createIndex indexName="idx_user_operations_user_type_created" tableName="user_operations">
+            <column name="user_id"/>
+            <column name="operation_type"/>
+            <column name="created_at" descending="true"/>
+        </createIndex>
+    </changeSet>
+</databaseChangeLog>

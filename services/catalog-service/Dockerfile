@@ -2,7 +2,7 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
 COPY pom.xml .
-COPY src/main/java ./src
+COPY src ./src
 RUN mvn -q -DskipTests package
 
 # Runtime stage
