@@ -29,21 +29,21 @@ public class OrdersApiDelegateImpl implements OrdersApiDelegate {
     }
 
     @Override
-    public ResponseEntity<OrderResponse> createOrder(UUID xUserId, OrderCreate orderCreate) {
+    public ResponseEntity<OrderResponse> createOrder(OrderCreate orderCreate, UUID xUserId) {
         UserPrincipal principal = getPrincipal();
         OrderEntity order = orderService.createOrder(principal.getUserId(), principal.getRole(), orderCreate);
         return ResponseEntity.status(HttpStatus.CREATED).body(toOrderResponse(order));
     }
 
     @Override
-    public ResponseEntity<OrderResponse> updateOrder(UUID xUserId, UUID id, OrderUpdate orderUpdate) {
+    public ResponseEntity<OrderResponse> updateOrder(UUID id, OrderUpdate orderUpdate, UUID xUserId) {
         UserPrincipal principal = getPrincipal();
         OrderEntity order = orderService.updateOrder(principal.getUserId(), principal.getRole(), id, orderUpdate);
         return ResponseEntity.ok(toOrderResponse(order));
     }
 
     @Override
-    public ResponseEntity<OrderResponse> getOrder(UUID xUserId, UUID id) {
+    public ResponseEntity<OrderResponse> getOrder(UUID id, UUID xUserId) {
         UserPrincipal principal = getPrincipal();
         return orderService.getOrderById(id, principal.getUserId(), principal.getRole())
                 .map(order -> ResponseEntity.ok(toOrderResponse(order)))
@@ -51,7 +51,7 @@ public class OrdersApiDelegateImpl implements OrdersApiDelegate {
     }
 
     @Override
-    public ResponseEntity<OrderResponse> cancelOrder(UUID xUserId, UUID id) {
+    public ResponseEntity<OrderResponse> cancelOrder(UUID id, UUID xUserId) {
         UserPrincipal principal = getPrincipal();
         OrderEntity order = orderService.cancelOrder(principal.getUserId(), principal.getRole(), id);
         return ResponseEntity.ok(toOrderResponse(order));

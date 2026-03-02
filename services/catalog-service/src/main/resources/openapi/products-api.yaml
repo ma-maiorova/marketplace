@@ -12,6 +12,105 @@ security:
   - bearerAuth: []
 
 paths:
+  /auth/register:
+    post:
+      summary: Регистрация пользователя
+      operationId: register
+      tags:
+        - auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Пользователь зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '409':
+          description: Email уже занят
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthError'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /auth/login:
+    post:
+      summary: Вход по email и паролю
+      operationId: login
+      tags:
+        - auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          description: Неверный email или пароль
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthError'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /auth/refresh:
+    post:
+      summary: Обновление access token по refresh token
+      operationId: refresh
+      tags:
+        - auth
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Новые токены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          description: Невалидный или истёкший refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthError'
+        '400':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
   /products:
     post:
       summary: Создание товара
@@ -482,6 +581,81 @@ components:
           type: object
           nullable: true
           description: Дополнительные данные (например, список полей с ошибками валидации)
+
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+      description: Тело запроса регистрации
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email пользователя
+        password:
+          type: string
+          minLength: 6
+          description: Пароль (не менее 6 символов)
+        role:
+          type: string
+          enum:
+            - USER
+            - SELLER
+            - ADMIN
+          description: Опционально. По умолчанию USER
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      description: Тело запроса входа
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email пользователя
+        password:
+          type: string
+          description: Пароль
+
+    RefreshRequest:
+      type: object
+      required:
+        - refresh_token
+      description: Тело запроса обновления токена
+      properties:
+        refresh_token:
+          type: string
+          description: Refresh token
+
+    AuthTokenResponse:
+      type: object
+      required:
+        - access_token
+        - refresh_token
+        - expires_in
+      description: Ответ с токенами после login/register/refresh
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+        refresh_token:
+          type: string
+          description: Refresh token для получения новой пары
+        expires_in:
+          type: integer
+          format: int64
+          description: Время жизни access token в секундах
+
+    AuthError:
+      type: object
+      description: Ошибка auth (409 конфликт, 401 неверные данные)
+      properties:
+        message:
+          type: string
+          description: Текстовое описание ошибки
 
     ValidationErrorDetails:
       type: object

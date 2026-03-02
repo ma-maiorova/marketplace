@@ -1,7 +1,7 @@
 package com.example.marketplace.catalog.auth;
 
-import com.example.marketplace.catalog.auth.Role;
 import com.example.marketplace.catalog.entity.UserEntity;
+import com.example.marketplace.catalog.model.AuthTokenResponse;
 import com.example.marketplace.catalog.repository.UserRepository;
 import io.jsonwebtoken.Claims;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,7 +24,7 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse register(String email, String password, Role role) {
+    public AuthTokenResponse register(String email, String password, Role role) {
         if (userRepository.existsByEmail(email)) {
             throw new EmailAlreadyExistsException("Пользователь с таким email уже зарегистрирован");
         }
@@ -39,7 +39,7 @@ public class AuthService {
         return buildTokens(user);
     }
 
-    public AuthResponse login(String email, String password) {
+    public AuthTokenResponse login(String email, String password) {
         UserEntity user = userRepository.findByEmail(email.trim())
                 .orElseThrow(() -> new BadCredentialsException("Неверный email или пароль"));
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
@@ -48,7 +48,7 @@ public class AuthService {
         return buildTokens(user);
     }
 
-    public AuthResponse refresh(String refreshToken) {
+    public AuthTokenResponse refresh(String refreshToken) {
         Claims claims = jwtService.validateRefreshToken(refreshToken);
         UUID userId = JwtService.getUserIdFromClaims(claims);
         UserEntity user = userRepository.findById(userId)
@@ -56,38 +56,14 @@ public class AuthService {
         Role role = user.getRole() != null ? user.getRole() : Role.USER;
         String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail(), role);
         String newRefreshToken = jwtService.generateRefreshToken(user.getId());
-        return new AuthResponse(accessToken, newRefreshToken, jwtService.getAccessExpirationSeconds());
+        return new AuthTokenResponse(accessToken, newRefreshToken, jwtService.getAccessExpirationSeconds());
     }
 
-    private AuthResponse buildTokens(UserEntity user) {
+    private AuthTokenResponse buildTokens(UserEntity user) {
         Role role = user.getRole() != null ? user.getRole() : Role.USER;
         String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail(), role);
         String refreshToken = jwtService.generateRefreshToken(user.getId());
-        return new AuthResponse(accessToken, refreshToken, jwtService.getAccessExpirationSeconds());
-    }
-
-    public static class AuthResponse {
-        private final String accessToken;
-        private final String refreshToken;
-        private final long expiresIn;
-
-        public AuthResponse(String accessToken, String refreshToken, long expiresIn) {
-            this.accessToken = accessToken;
-            this.refreshToken = refreshToken;
-            this.expiresIn = expiresIn;
-        }
-
-        public String getAccessToken() {
-            return accessToken;
-        }
-
-        public String getRefreshToken() {
-            return refreshToken;
-        }
-
-        public long getExpiresIn() {
-            return expiresIn;
-        }
+        return new AuthTokenResponse(accessToken, refreshToken, jwtService.getAccessExpirationSeconds());
     }
 
     public static class EmailAlreadyExistsException extends RuntimeException {
