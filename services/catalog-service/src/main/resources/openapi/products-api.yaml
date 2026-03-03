@@ -7,7 +7,6 @@ info:
     JWT в заголовке Authorization Bearer, в токене — claim `role`.
   version: 1.0.0
 
-# Глобальная схема: все операции по умолчанию требуют JWT (в Swagger UI появится кнопка Authorize).
 security:
   - bearerAuth: []
 
@@ -196,6 +195,30 @@ paths:
       responses:
         '200':
           description: CSV-файл со списком товаров
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+
+  /products/export/stream:
+    get:
+      summary: Потоковая выгрузка списка товаров в CSV
+      operationId: exportProductsStream
+      parameters:
+        - name: status
+          in: query
+          description: Фильтр по статусу
+          schema:
+            $ref: '#/components/schemas/ProductStatus'
+        - name: category
+          in: query
+          description: Фильтр по категории (точное совпадение)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: CSV-файл со списком товаров (streaming)
           content:
             text/csv:
               schema:

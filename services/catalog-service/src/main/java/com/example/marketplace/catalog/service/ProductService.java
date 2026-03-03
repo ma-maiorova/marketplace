@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * Сервис CRUD для товаров. Мягкое удаление — перевод статуса в ARCHIVED.
@@ -68,6 +69,27 @@ public class ProductService {
             return productRepository.findByCategory(category.trim(), pageable);
         }
         return productRepository.findAll(pageable);
+    }
+
+    /**
+     * Итерация по товарам для выгрузки (страницами), без загрузки всего списка в память.
+     */
+    public void forEachProductForExport(ProductStatus status, String category, int pageSize, Consumer<ProductEntity> consumer) {
+        Pageable pageable = PageRequest.of(0, pageSize);
+        Page<ProductEntity> page;
+        do {
+            if (status != null && category != null && !category.isBlank()) {
+                page = productRepository.findByStatusAndCategory(status, category.trim(), pageable);
+            } else if (status != null) {
+                page = productRepository.findByStatus(status, pageable);
+            } else if (category != null && !category.isBlank()) {
+                page = productRepository.findByCategory(category.trim(), pageable);
+            } else {
+                page = productRepository.findAll(pageable);
+            }
+            page.getContent().forEach(consumer);
+            pageable = page.hasNext() ? page.nextPageable() : null;
+        } while (pageable != null);
     }
 
     /**

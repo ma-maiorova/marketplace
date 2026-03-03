@@ -12,6 +12,7 @@ import com.example.marketplace.catalog.exception.ProductNotFoundException;
 import com.example.marketplace.catalog.service.ProductService;
 import org.openapitools.jackson.nullable.JsonNullable;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -20,6 +21,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -91,6 +96,44 @@ public class ProductsApiDelegateImpl implements ProductsApiDelegate {
         headers.setContentDispositionFormData("attachment", "products.csv");
         headers.setContentLength(bytes.length);
         return ResponseEntity.ok().headers(headers).body(resource);
+    }
+
+    @Override
+    public ResponseEntity<Resource> exportProductsStream(ProductStatus status, String category) {
+        try {
+            PipedOutputStream out = new PipedOutputStream();
+            PipedInputStream in = new PipedInputStream(out);
+            Thread writer = new Thread(() -> {
+                try (OutputStream os = out) {
+                    os.write("id,name,description,price,stock,category,status,created_at,updated_at\n".getBytes(StandardCharsets.UTF_8));
+                    productService.forEachProductForExport(status, category, 100, e -> {
+                        try {
+                            String row = escapeCsv(e.getId().toString()) + ','
+                                    + escapeCsv(e.getName()) + ','
+                                    + escapeCsv(e.getDescription() != null ? e.getDescription() : "") + ','
+                                    + e.getPrice() + ','
+                                    + e.getStock() + ','
+                                    + escapeCsv(e.getCategory()) + ','
+                                    + e.getStatus().getValue() + ','
+                                    + escapeCsv(e.getCreatedAt().toString()) + ','
+                                    + escapeCsv(e.getUpdatedAt().toString()) + '\n';
+                            os.write(row.getBytes(StandardCharsets.UTF_8));
+                        } catch (IOException ex) {
+                            throw new RuntimeException(ex);
+                        }
+                    });
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            writer.start();
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.parseMediaType("text/csv"));
+            headers.setContentDispositionFormData("attachment", "products.csv");
+            return ResponseEntity.ok().headers(headers).body(new InputStreamResource(in));
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to create streaming export", e);
+        }
     }
 
     private String buildProductsCsv(List<ProductEntity> products) {
