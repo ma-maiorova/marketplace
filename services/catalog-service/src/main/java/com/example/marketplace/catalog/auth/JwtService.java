@@ -21,6 +21,7 @@ public class JwtService {
     private static final String CLAIM_EMAIL = "email";
     private static final String CLAIM_TYPE = "type";
     private static final String CLAIM_ROLE = "role";
+    private static final int MIN_SECRET_BYTES = 32; // HS256
 
     private final SecretKey accessSecret;
     private final SecretKey refreshSecret;
@@ -32,10 +33,25 @@ public class JwtService {
             @Value("${jwt.refresh.secret:default-refresh-secret-min-256-bits-for-hs256!!!!!!!!!!!!!!!!!!!!!!!!!!}") String refreshSecret,
             @Value("${jwt.access.expiration-minutes:20}") long accessExpirationMinutes,
             @Value("${jwt.refresh.expiration-days:14}") long refreshExpirationDays) {
-        this.accessSecret = Keys.hmacShaKeyFor(accessSecret.getBytes(StandardCharsets.UTF_8));
-        this.refreshSecret = Keys.hmacShaKeyFor(refreshSecret.getBytes(StandardCharsets.UTF_8));
+        this.accessSecret = toSecretKey(accessSecret, "JWT_ACCESS_SECRET");
+        this.refreshSecret = toSecretKey(refreshSecret, "JWT_REFRESH_SECRET");
         this.accessExpirationMs = accessExpirationMinutes * 60 * 1000;
         this.refreshExpirationMs = refreshExpirationDays * 24 * 60 * 60 * 1000;
+    }
+
+    private static SecretKey toSecretKey(String secret, String envVarName) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException(
+                "JWT secret is empty. Set " + envVarName + " in .env (min 32 characters). " +
+                "For Docker: .env must be next to docker-compose.yml.");
+        }
+        byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
+        if (bytes.length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                envVarName + " must be at least " + MIN_SECRET_BYTES + " bytes (got " + bytes.length + "). " +
+                "Use a longer secret for HS256.");
+        }
+        return Keys.hmacShaKeyFor(bytes);
     }
 
     public String generateAccessToken(UUID userId, String email, Role role) {

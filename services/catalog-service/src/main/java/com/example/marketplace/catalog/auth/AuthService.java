@@ -25,13 +25,14 @@ public class AuthService {
 
     @Transactional
     public AuthTokenResponse register(String email, String password, Role role) {
-        if (userRepository.existsByEmail(email)) {
+        String normalizedEmail = normalizeEmail(email);
+        if (userRepository.existsByEmail(normalizedEmail)) {
             throw new EmailAlreadyExistsException("Пользователь с таким email уже зарегистрирован");
         }
         Role assignedRole = role != null ? role : Role.USER;
         UserEntity user = new UserEntity();
         user.setId(UUID.randomUUID());
-        user.setEmail(email.toLowerCase().trim());
+        user.setEmail(normalizedEmail);
         user.setPasswordHash(passwordEncoder.encode(password));
         user.setCreatedAt(java.time.Instant.now());
         user.setRole(assignedRole);
@@ -40,7 +41,7 @@ public class AuthService {
     }
 
     public AuthTokenResponse login(String email, String password) {
-        UserEntity user = userRepository.findByEmail(email.trim())
+        UserEntity user = userRepository.findByEmail(normalizeEmail(email))
                 .orElseThrow(() -> new BadCredentialsException("Неверный email или пароль"));
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
             throw new BadCredentialsException("Неверный email или пароль");
@@ -57,6 +58,10 @@ public class AuthService {
         String accessToken = jwtService.generateAccessToken(user.getId(), user.getEmail(), role);
         String newRefreshToken = jwtService.generateRefreshToken(user.getId());
         return new AuthTokenResponse(accessToken, newRefreshToken, jwtService.getAccessExpirationSeconds());
+    }
+
+    private static String normalizeEmail(String email) {
+        return email == null ? null : email.toLowerCase().trim();
     }
 
     private AuthTokenResponse buildTokens(UserEntity user) {

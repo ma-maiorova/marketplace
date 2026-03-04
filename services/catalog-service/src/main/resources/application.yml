@@ -25,11 +25,11 @@ order:
   creation:
     minutes-limit: 5
 
-# JWT: access 15–30 мин, refresh 7–30 дней
+# JWT: переменные задаются в .env (см. .env.example). Без дефолтов.
 jwt:
   access:
-    secret: ${JWT_ACCESS_SECRET:default-access-secret-min-256-bits-for-hs256!!!!!!!!!!!!!!!!!!!!!!!!!!!!}
+    secret: ${JWT_ACCESS_SECRET}
     expiration-minutes: ${JWT_ACCESS_EXPIRATION_MINUTES:20}
   refresh:
-    secret: ${JWT_REFRESH_SECRET:default-refresh-secret-min-256-bits-for-hs256!!!!!!!!!!!!!!!!!!!!!!!!!!}
+    secret: ${JWT_REFRESH_SECRET}
     expiration-days: ${JWT_REFRESH_EXPIRATION_DAYS:14}

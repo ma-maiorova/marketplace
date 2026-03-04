@@ -17,8 +17,11 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Создание заказа с последовательными проверками (1–7) и созданием в одной транзакции.
@@ -27,7 +30,6 @@ import java.util.UUID;
 public class OrderService {
 
     private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository;
     private final ProductRepository productRepository;
     private final PromoCodeRepository promoCodeRepository;
     private final UserOperationRepository userOperationRepository;
@@ -40,12 +42,10 @@ public class OrderService {
     private static final BigDecimal MAX_DISCOUNT_PERCENT = new BigDecimal("70");
 
     public OrderService(OrderRepository orderRepository,
-                        OrderItemRepository orderItemRepository,
                         ProductRepository productRepository,
                         PromoCodeRepository promoCodeRepository,
                         UserOperationRepository userOperationRepository) {
         this.orderRepository = orderRepository;
-        this.orderItemRepository = orderItemRepository;
         this.productRepository = productRepository;
         this.promoCodeRepository = promoCodeRepository;
         this.userOperationRepository = userOperationRepository;
@@ -77,18 +77,23 @@ public class OrderService {
             throw new OrderHasActiveException("У пользователя уже есть активный заказ");
         }
 
-        // 3. Проверка каталога: товар существует и ACTIVE
+        // 3–5. Блокировка товаров (FOR UPDATE в одном порядке — избежание deadlock), проверка каталога и остатков, резерв
+        List<UUID> productIds = items.stream().map(OrderItemCreate::getProductId).distinct().sorted().toList();
+        List<ProductEntity> loaded = productRepository.findAllByIdForUpdate(productIds);
+        Map<UUID, ProductEntity> productById = loaded.stream().collect(Collectors.toMap(ProductEntity::getId, p -> p));
         List<ProductEntity> products = new ArrayList<>();
         for (OrderItemCreate item : items) {
-            ProductEntity p = productRepository.findById(item.getProductId())
-                    .orElseThrow(() -> new ProductNotFoundException(item.getProductId()));
-            if (p.getStatus() != com.example.marketplace.catalog.model.ProductStatus.ACTIVE) {
-                throw new ProductInactiveException(p.getId());
+            ProductEntity p = productById.get(item.getProductId());
+            if (p == null) {
+                throw new ProductNotFoundException(item.getProductId());
             }
             products.add(p);
         }
-
-        // 4. Проверка остатков
+        for (ProductEntity p : products) {
+            if (p.getStatus() != com.example.marketplace.catalog.model.ProductStatus.ACTIVE) {
+                throw new ProductInactiveException(p.getId());
+            }
+        }
         List<InsufficientStockException.StockShortageItem> shortage = new ArrayList<>();
         for (int i = 0; i < items.size(); i++) {
             ProductEntity p = products.get(i);
@@ -101,10 +106,6 @@ public class OrderService {
         if (!shortage.isEmpty()) {
             throw new InsufficientStockException(shortage);
         }
-
-        // 5–7 в одной транзакции: резерв остатков, создание заказа, снапшот цен, расчёт суммы, промо, user_operation
-
-        // Резервирование остатков
         for (int i = 0; i < items.size(); i++) {
             ProductEntity p = products.get(i);
             int qty = items.get(i).getQuantity();
@@ -166,15 +167,13 @@ public class OrderService {
             order.setDiscountAmount(discount);
             totalAmount = totalAmount.subtract(discount);
 
-            promo.setCurrentUses(promo.getCurrentUses() + 1);
-            promoCodeRepository.save(promo);
+            if (promoCodeRepository.incrementCurrentUsesIfUnderMax(promo.getId()) == 0) {
+                throw new PromoCodeInvalidException("Промокод исчерпан");
+            }
         }
 
         order.setTotalAmount(totalAmount);
         orderRepository.save(order);
-        for (OrderItemEntity oi : order.getItems()) {
-            orderItemRepository.save(oi);
-        }
 
         // 8. Фиксация операции и статус CREATED
         UserOperationEntity op = new UserOperationEntity();
@@ -228,25 +227,37 @@ public class OrderService {
                     }
                 });
 
-        // 4–7 в одной транзакции: возврат остатков, проверка и резерв новых позиций, пересчёт, промо, user_operation
+        // 4–7 в одной транзакции: блокировка товаров (старых + новых), возврат остатков, проверка и резерв новых
 
-        // 4. Возврат предыдущих остатков
+        List<UUID> oldIds = order.getItems().stream().map(OrderItemEntity::getProductId).distinct().toList();
+        List<UUID> newIds = newItems.stream().map(OrderItemCreate::getProductId).distinct().toList();
+        List<UUID> allIds = Stream.concat(oldIds.stream(), newIds.stream()).distinct().sorted().toList();
+        Map<UUID, ProductEntity> productById;
+        if (allIds.isEmpty()) {
+            productById = Map.of();
+        } else {
+            List<ProductEntity> loaded = productRepository.findAllByIdForUpdate(allIds);
+            productById = loaded.stream().collect(Collectors.toMap(ProductEntity::getId, p -> p));
+        }
         for (OrderItemEntity oldItem : order.getItems()) {
-            productRepository.findById(oldItem.getProductId()).ifPresent(p -> {
+            ProductEntity p = productById.get(oldItem.getProductId());
+            if (p != null) {
                 p.setStock(p.getStock() + oldItem.getQuantity());
                 productRepository.save(p);
-            });
+            }
         }
-
-        // 5. Проверка новых позиций (каталог + остатки) и резервирование
         List<ProductEntity> products = new ArrayList<>();
         for (OrderItemCreate item : newItems) {
-            ProductEntity p = productRepository.findById(item.getProductId())
-                    .orElseThrow(() -> new ProductNotFoundException(item.getProductId()));
+            ProductEntity p = productById.get(item.getProductId());
+            if (p == null) {
+                throw new ProductNotFoundException(item.getProductId());
+            }
+            products.add(p);
+        }
+        for (ProductEntity p : products) {
             if (p.getStatus() != com.example.marketplace.catalog.model.ProductStatus.ACTIVE) {
                 throw new ProductInactiveException(p.getId());
             }
-            products.add(p);
         }
         List<InsufficientStockException.StockShortageItem> shortage = new ArrayList<>();
         for (int i = 0; i < newItems.size(); i++) {
@@ -305,20 +316,14 @@ public class OrderService {
                     applied = true;
                 }
             }
-            if (!applied && promo != null) {
-                promo.setCurrentUses(promo.getCurrentUses() - 1);
-                promoCodeRepository.save(promo);
-                order.setPromoCodeId(null);
-            } else if (!applied) {
+            if (!applied && order.getPromoCodeId() != null) {
+                promoCodeRepository.decrementCurrentUsesIfPositive(order.getPromoCodeId());
                 order.setPromoCodeId(null);
             }
         }
         order.setTotalAmount(totalAmount);
 
         orderRepository.save(order);
-        for (OrderItemEntity oi : order.getItems()) {
-            orderItemRepository.save(oi);
-        }
 
         // 7. Фиксация операции
         UserOperationEntity op = new UserOperationEntity();
@@ -348,20 +353,23 @@ public class OrderService {
         // 2. Проверка состояния — отмена только из CREATED или PAYMENT_PENDING
         OrderStateMachine.validateTransition(order.getStatus(), OrderStatus.CANCELED);
 
-        // 3. Возврат остатков
-        for (OrderItemEntity item : order.getItems()) {
-            productRepository.findById(item.getProductId()).ifPresent(p -> {
-                p.setStock(p.getStock() + item.getQuantity());
-                productRepository.save(p);
-            });
+        // 3. Возврат остатков (блокировка товаров FOR UPDATE)
+        List<UUID> productIds = order.getItems().stream().map(OrderItemEntity::getProductId).distinct().sorted().toList();
+        if (!productIds.isEmpty()) {
+            List<ProductEntity> loaded = productRepository.findAllByIdForUpdate(productIds);
+            Map<UUID, ProductEntity> productById = loaded.stream().collect(Collectors.toMap(ProductEntity::getId, p -> p));
+            for (OrderItemEntity item : order.getItems()) {
+                ProductEntity p = productById.get(item.getProductId());
+                if (p != null) {
+                    p.setStock(p.getStock() + item.getQuantity());
+                    productRepository.save(p);
+                }
+            }
         }
 
-        // 4. Возврат использования промокода
+        // 4. Возврат использования промокода (атомарный декремент, не уходит в минус при гонках)
         if (order.getPromoCodeId() != null) {
-            promoCodeRepository.findById(order.getPromoCodeId()).ifPresent(promo -> {
-                promo.setCurrentUses(promo.getCurrentUses() - 1);
-                promoCodeRepository.save(promo);
-            });
+            promoCodeRepository.decrementCurrentUsesIfPositive(order.getPromoCodeId());
         }
 
         // 5. Установка статуса

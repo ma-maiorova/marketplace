@@ -18,6 +18,8 @@ services:
       context: ./services/catalog-service
     ports:
       - "8080:8080"
+    env_file:
+      - ./services/catalog-service/.env
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
