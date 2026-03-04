@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="1" author="ma-maiorova">
+        <comment>Таблица товаров (products)</comment>
+        <createTable tableName="products">
+            <column name="id" type="uuid">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="VARCHAR(4000)"/>
+            <column name="price" type="DECIMAL(12, 2)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="stock" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="category" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>ALTER TABLE products ADD CONSTRAINT chk_products_price CHECK (price > 0)</sql>
+        <sql>ALTER TABLE products ADD CONSTRAINT chk_products_stock CHECK (stock >= 0)</sql>
+    </changeSet>
+
+    <changeSet id="2" author="ma-maiorova">
+        <comment>Индекс на поле status для фильтрации</comment>
+        <createIndex indexName="idx_products_status" tableName="products">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="3" author="ma-maiorova">
+        <comment>Триггер для автоматического обновления updated_at</comment>
+
+        <sql splitStatements="false" stripComments="true">
+        <![CDATA[
+            CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+            BEGIN
+            NEW.updated_at = CURRENT_TIMESTAMP;
+            RETURN NEW;
+            END;
+        $$ LANGUAGE plpgsql;
+            ]]>
+    </sql>
+
+        <sql>
+            CREATE TRIGGER products_updated_at
+                BEFORE UPDATE ON products
+                FOR EACH ROW
+                EXECUTE FUNCTION update_updated_at_column();
+        </sql>
+    </changeSet>
+</databaseChangeLog>

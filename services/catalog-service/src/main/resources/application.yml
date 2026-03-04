@@ -1,0 +1,35 @@
+spring:
+  application:
+    name: catalog-service
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:catalog}
+    username: ${POSTGRES_USER:catalog_user}
+    password: ${POSTGRES_PASSWORD:catalog_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        default_schema: public
+    open-in-view: false
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.xml
+
+server:
+  port: 8080
+
+# Ограничение частоты создания заказов: минимальный интервал в минутах между CREATE_ORDER
+order:
+  creation:
+    minutes-limit: 5
+
+# JWT: переменные задаются в .env (см. .env.example). Без дефолтов.
+jwt:
+  access:
+    secret: ${JWT_ACCESS_SECRET}
+    expiration-minutes: ${JWT_ACCESS_EXPIRATION_MINUTES:20}
+  refresh:
+    secret: ${JWT_REFRESH_SECRET}
+    expiration-days: ${JWT_REFRESH_EXPIRATION_DAYS:14}

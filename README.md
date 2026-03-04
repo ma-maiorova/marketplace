@@ -121,9 +121,9 @@ npx likec4 export png -o ./docs/assets
 ### Запуск (Docker Compose)
 Из корня репозитория:
 ```bash
-docker compose up --build
+docker-compose up --build
 ```
-Проверка:
+Проверка (сервис на порту 8080, БД на 5435):
 ```bash
 curl -i http://localhost:8080/health
 ```
